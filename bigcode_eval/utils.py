@@ -95,6 +95,25 @@ class TokenizedDataset(IterableDataset):
             return_token_type_ids = False
         else:
             return_token_type_ids = None  # default
+        system_prompt = """You are an AI assistant that writes code.
+
+1.  **Understand the Goal:** Read the user's request carefully to know what the code should do.
+2.  **Generate Code:** Write clean and working code that meets the user's requirements.
+3.  **Explain:** Briefly describe what the code does and how to use it.
+"""
+        # messages = []
+        # for p in prompts:
+        #     message = self.tokenizer.apply_chat_template(
+        #         [
+        #             {"role": "system", "content": system_prompt},
+        #             {"role": "user", "content": p}
+        #         ],
+        #         tokenize=False,
+        #         add_generation_prompt=True
+        #     )
+        #     messages.append(message)
+
+        # print(messages)
 
         outputs = self.tokenizer(
             prompts,
@@ -437,3 +456,359 @@ def remove_after_return(code):
             return code[0: start_match]
         end_last_match = end_match
     return code
+
+
+def generate_code_with_fm(
+    task,
+    accelerator,
+    model,
+    tokenizer,
+    dataloader,
+    n_tasks,
+    limit_start=0,
+    batch_size=20,
+    prefix="",
+    instruction_tokens=None,
+    postprocess=True,
+    is_wrapped=False,
+    save_every_k_tasks: int = -1,
+    intermediate_generations: Optional[List[Optional[List[Optional[str]]]]] = None,
+    intermediate_save_generations_path: Optional[str] = None,
+    generation_with_fm= False,
+    **gen_kwargs,
+    ):
+    if not generation_with_fm:
+        generations = complete_code(
+            task,
+            accelerator,
+            model,
+            tokenizer,
+            dataloader,
+            n_tasks,
+            limit_start,
+            batch_size,
+            prefix,
+            instruction_tokens,
+            postprocess,
+            is_wrapped,
+            save_every_k_tasks,
+            intermediate_generations,
+            intermediate_save_generations_path,
+            **gen_kwargs,
+        )
+        return generations
+    
+    else:
+        generations = fm_completion(
+            task,
+            accelerator,
+            model,
+            tokenizer,
+            dataloader,
+            n_tasks,
+            limit_start,
+            batch_size,
+            prefix,
+            instruction_tokens,
+            postprocess,
+            is_wrapped,
+            save_every_k_tasks,
+            intermediate_generations,
+            intermediate_save_generations_path,
+            **gen_kwargs,
+        )
+        return generations
+
+
+def fm_completion(
+    task,
+    accelerator,
+    model,
+    tokenizer,
+    dataloader,
+    n_tasks,
+    limit_start=0,
+    batch_size=20,
+    prefix="",
+    instruction_tokens=None,
+    postprocess=True,
+    is_wrapped=False,
+    save_every_k_tasks: int = -1,
+    intermediate_generations: Optional[List[Optional[List[Optional[str]]]]] = None,
+    intermediate_save_generations_path: Optional[str] = None,
+    **gen_kwargs,
+):
+    """Generate multiple codes for each task in the dataset using multiple GPUs with accelerate.
+    dataloader sends all the prompts from the evalution dataset to the model as the following:
+    [p_0_0, p_0_1, ..., p_0_nc-1, p_1_0, ..., p_nt-1_nc-1] where nc is the number of copies of the prompt,
+    and nt is the number of tasks. nc is such that num_samples(for each task)= nc * batch_size
+    """
+    # keep track of the list of generated codes
+    # where len(code_gens) = n_tasks and len(code_gens[0]) = number of generated code samples
+    code_gens: List[List[Optional[str]]] = [[] for _ in range(n_tasks)]
+    generations = [] if not intermediate_generations else intermediate_generations
+    gen_token_dict = defaultdict(list)  # dict of list of generated tokens
+    for step, batch in tqdm(
+        enumerate(dataloader),
+        total=math.ceil(
+            n_tasks * dataloader.dataset.n_copies / accelerator.num_processes
+        ),
+    ):
+        with torch.no_grad():
+            if task.stop_words:
+                # Set the start_length after which to check for stopping to be the longest input ignoring padding
+                max_len = batch["input_len"].max().item()
+                if "ids_encoder" in batch:
+                    max_len += 1  # Add 1 for decoder_start_token_id
+                gen_kwargs["stopping_criteria"][0].start_length = max_len
+            if hasattr(task, "max_length_multiplier") and task.max_length_multiplier:
+                idx = 1 if task.stop_words else 0
+                gen_kwargs["stopping_criteria"][idx].input_length = (
+                    batch["input_len"].max().item()
+                )
+
+            inputs = batch["ids"][:, : batch["input_len"]] if tokenizer.padding_side == "right" else batch["ids"]
+            if "ids_encoder" in batch:
+                if is_wrapped:
+                    generated_tokens = accelerator.unwrap_model(model).generate(
+                        decoder_input_ids=inputs,
+                        input_ids=batch["ids_encoder"][:, : batch["input_len_encoder"]],
+                        num_return_sequences=batch_size,
+                        decoder_start_token_id=tokenizer.pad_token_id,
+                        eos_token_id=tokenizer.eos_token_id,
+                        **gen_kwargs,
+                    )
+                else:
+                    generated_tokens = model.generate(
+                        decoder_input_ids=inputs,
+                        input_ids=batch["ids_encoder"][:, : batch["input_len_encoder"]],
+                        num_return_sequences=batch_size,
+                        decoder_start_token_id=tokenizer.pad_token_id,
+                        eos_token_id=tokenizer.eos_token_id,
+                        **gen_kwargs,
+                    )
+            else:
+                if is_wrapped:
+                    # 8bit and 4bit models are wrapped in accelerator
+                    generated_tokens = accelerator.unwrap_model(model).generate(
+                        input_ids=inputs,
+                        num_return_sequences=batch_size,
+                        **gen_kwargs,
+                    )
+                else:
+                    # In transformers (>= 4.40.2), if the length of input_ids == max_length, a ValueError is thrown.
+                    # We want to ignore this error in order to reproduce old results with mbpp.
+                    try:
+                        generated_tokens = model.generate(
+                            input_ids=inputs,
+                            num_return_sequences=batch_size,
+                            **gen_kwargs,
+                        )
+                    except ValueError as e:
+                        # When the length of input_ids == max_length, the generation is the same as the input
+                        if str(e).startswith(f"Input length of input_ids is {inputs.shape[1]}, but `max_length` is set to {gen_kwargs['max_length']}"):
+                            warnings.warn(f"An error with the following message was thrown: {e}. Returning the input as the generation, for higher scores consider using a larger `max_length`")
+                            generated_tokens = inputs
+                        else:
+                            raise e
+
+            # each task is generated batch_size times
+            generated_tasks = batch["task_id"].repeat(batch_size)
+            generated_tokens = accelerator.pad_across_processes(
+                generated_tokens, dim=1, pad_index=tokenizer.pad_token_id
+            )
+
+            generated_tokens, generated_tasks = accelerator.gather(
+                (generated_tokens, generated_tasks)
+            )
+            generated_tokens = generated_tokens.cpu().numpy()
+            generated_tasks = generated_tasks.cpu().numpy()
+
+            decode_text = decode_llm_output(prefix, task, tokenizer, generated_tokens, instruction_tokens)
+            processed_texts = task.postprocess_generation(decode_text, int(generated_tasks) + limit_start)
+
+            pattern = r'"""\n(.*?)\n"""\n'
+            prompt = re.findall(pattern, processed_texts, flags=re.DOTALL)[0].strip()
+            answer = re.sub(pattern, '', processed_texts, flags=re.DOTALL).strip()
+
+            # Convert python code to C code
+            processed_result = process_answer_with_conversion(
+                answer, 
+                model, 
+                tokenizer, 
+                accelerator
+            )
+            print(f"Python Code:\n{processed_result['python_code']}\n")
+            if processed_result['c_code']:
+                print(f"C Code:\n{processed_result['c_code']}\n")
+
+            for sample, generated_tokens in zip(generated_tasks, generated_tokens):
+                gen_token_dict[sample].append(generated_tokens)
+
+            if save_every_k_tasks >= 1 and (step + 1) % save_every_k_tasks == 0:
+                if not intermediate_save_generations_path:
+                    raise ValueError(
+                        "intermediate_save_generations_path cannot be empty!"
+                    )
+
+                code_gens = update_code_gens(
+                    task,
+                    tokenizer,
+                    limit_start,
+                    prefix,
+                    instruction_tokens,
+                    postprocess,
+                    code_gens,
+                    gen_token_dict,
+                )
+                with open(intermediate_save_generations_path, "w") as fp:
+                    json.dump(generations + code_gens, fp)
+                    print(
+                        f"intermediate generations were saved at {intermediate_save_generations_path}"
+                    )
+                # reset gen_token_dict - prevent redundant decoding
+                gen_token_dict = defaultdict(list)
+
+    code_gens = update_code_gens(
+        task,
+        tokenizer,
+        limit_start,
+        prefix,
+        instruction_tokens,
+        postprocess,
+        code_gens,
+        gen_token_dict,
+    )
+
+    generations.extend(code_gens)
+    return generations
+
+
+def decode_llm_output(prefix, task, tokenizer, generated_tokens, instruction_tokens):
+    for s in generated_tokens:
+            if INFILL_MODE or tokenizer.eos_token in task.stop_words:
+                if s[0] == tokenizer.bos_token_id:
+                    s = s[1:]
+                gen_code = tokenizer.decode(
+                    s, skip_special_tokens=False, clean_up_tokenization_spaces=False
+                )
+                try:
+                    # some tokenizers add a multi-token prefix to the generation (e.g ChatGLM)
+                    tokenizer_prefix = tokenizer.decode(tokenizer.get_prefix_tokens())
+                    if gen_code.startswith(f"{tokenizer_prefix}"):
+                        gen_code = gen_code[len(tokenizer_prefix):].lstrip()
+                except:
+                    pass
+                if INFILL_MODE:
+                    gen_code = _parse_infill(gen_code, tokenizer)
+                if INSTRUCTION_MODE:
+                    gen_code = _parse_instruction(gen_code, instruction_tokens)
+            else:
+                gen_code = tokenizer.decode(
+                    s, skip_special_tokens=True, clean_up_tokenization_spaces=True
+                )
+            if not INFILL_MODE:
+                gen_code = gen_code[len(prefix) :]
+
+    return gen_code
+
+
+def convert_python_to_c(
+    python_code,
+    model,
+    tokenizer,
+    accelerator
+):
+    system_prompt = """You are an expert programmer with deep knowledge of both Python and C. Your task is to convert the following Python code into its equivalent C code.
+
+**Instructions:**
+
+*   Translate the logic and functionality of the Python code as accurately as possible into C.
+*   The C code should be complete and able to be compiled and run.
+*   **Crucially, you must output only the C code and it must be enclosed in a C markdown block.** Do not include any explanations, comments, or any text other than the code itself.
+"""
+    
+    user_prompt = """Python Code to Convert:
+
+```python
+{python_code}
+```
+"""
+
+    conversion_prompt = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt.format(python_code=python_code)}
+    ]
+
+    text = tokenizer.apply_chat_template(
+        conversion_prompt,
+        tokenize=False,
+        add_generation_prompt=True
+    )
+
+    inputs = tokenizer(
+        [text],
+        return_tensors="pt",
+        truncation=True,
+        padding=True
+    )
+    
+    inputs = {k: v.to(accelerator.device) for k, v in inputs.items()}
+    
+    with torch.no_grad():
+        generated_tokens = model.generate(
+            **inputs,
+            max_new_tokens=1024,
+        )
+        
+        generated_text = tokenizer.decode(
+            generated_tokens[0], 
+            skip_special_tokens=True, 
+            clean_up_tokenization_spaces=True
+        )
+
+        generated_text = extract_c_code_block(generated_text)
+        
+    return generated_text
+
+
+def extract_c_code_block(text):
+    c_code_pattern = r'```c\s*(.*?)\s*```'
+    match = re.search(c_code_pattern, text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    else:
+        warnings.warn("No C code block found in the generated text. Returning empty string.")
+        return None
+
+
+def process_answer_with_conversion(
+    answer,
+    model,
+    tokenizer,
+    accelerator
+):
+    """Process the answer by converting Python code to C code.
+    Args:
+        answer: The Python code answer to be converted.
+        model: The language model used for conversion.
+        tokenizer: The tokenizer associated with the model.
+        accelerator: The accelerator for distributed computing.
+    Returns:
+        A dictionary containing the original Python code and the converted C code.
+    """
+
+    result = {
+        "python_code": answer,
+        "c_code": None
+    }
+    
+    c_code = convert_python_to_c(
+        answer, 
+        model, 
+        tokenizer, 
+        accelerator
+    )
+    result["c_code"] = c_code
+
+    return result

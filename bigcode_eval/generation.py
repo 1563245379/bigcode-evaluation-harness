@@ -7,7 +7,7 @@ from accelerate.utils import set_seed
 from torch.utils.data.dataloader import DataLoader
 from transformers import StoppingCriteria, StoppingCriteriaList
 
-from bigcode_eval.utils import TokenizedDataset, complete_code
+from bigcode_eval.utils import TokenizedDataset, generate_code_with_fm
 
 
 class EndOfFunctionCriteria(StoppingCriteria):
@@ -138,7 +138,7 @@ def parallel_generations(
         # model.to() is not supported for 8bit and 4bit models
         model, ds_loader = accelerator.prepare(model, ds_loader)
 
-    generations = complete_code(
+    generations = generate_code_with_fm(
         task,
         accelerator,
         model,
@@ -154,6 +154,10 @@ def parallel_generations(
         save_every_k_tasks=save_every_k_tasks,
         intermediate_generations=intermediate_generations,
         intermediate_save_generations_path=intermediate_save_generations_path,
+        generation_with_fm=args.generation_with_fm,
         **gen_kwargs,
     )
+
+    print("number of generations:", len(generations))
+    print("shape of generations:", len(generations), "x", len(generations[0]) if generations else 0)
     return generations

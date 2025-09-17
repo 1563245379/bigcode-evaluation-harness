@@ -210,6 +210,12 @@ def parse_args():
         action="store_true",
         help="Don't run generation but benchmark groundtruth (useful for debugging)",
     )
+
+    parser.add_argument(
+        "--generation_with_fm",
+        action="store_true",
+        help="Whether to use formal methods for generation",
+    )
     return parser.parse_args()
 
 
@@ -233,6 +239,10 @@ def main():
     args = parse_args()
     transformers.logging.set_verbosity_error()
     datasets.logging.set_verbosity_error()
+
+    if args.generation_with_fm:
+        print("Generating with formal methods only supported for batch size of 1")
+        args.batch_size = 1
 
     if args.tasks is None:
         task_names = ALL_TASKS
