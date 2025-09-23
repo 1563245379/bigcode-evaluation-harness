@@ -762,7 +762,6 @@ def code_generation(
 # """
 
     user_prompt_assertion = """User's Prompt:
-
 {user_prompt}
 
 Generated Python Code:
@@ -783,16 +782,17 @@ Generated Python Code:
 
 **Example:**
 
-**User's Prompt:**
-"Write a Python function to find the sum of a list of numbers."
+User's Prompt:
+Write a Python function to find the sum of a list of numbers.
 
-**Python Code:**
+Generated Python Code:
 ```python
 def sum_list(numbers):
-  total = 0
-  for number in numbers:
-    total += number
-  return total```
+    total = 0
+    for number in numbers:
+        total += number
+    return total
+```
 
 **Your Expected Output:**
 
