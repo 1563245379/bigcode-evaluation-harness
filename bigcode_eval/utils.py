@@ -779,7 +779,7 @@ Generated Python Code:
 2.  Review the provided Python code to understand its implementation.
 3.  Generate one or two `assert` statements that effectively test whether the code behaves as expected according to the user's prompt.
 4.  The assertions should be concise and directly verifiable.
-5.  Output only the assertion content, enclosed in markdown code blocks using ```.
+5.  Output only the assertion content, enclosed in Python markdown blocks.
 
 **Example:**
 
@@ -796,8 +796,11 @@ def sum_list(numbers):
 
 **Your Expected Output:**
 
-```
+```python
 assert sum_list() == 15
+```
+
+```python
 assert sum_list([-1, 0, 1]) == 0
 ```
 
