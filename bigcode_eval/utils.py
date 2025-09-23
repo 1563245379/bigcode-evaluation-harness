@@ -798,9 +798,6 @@ def sum_list(numbers):
 
 ```python
 assert sum_list() == 15
-```
-
-```python
 assert sum_list([-1, 0, 1]) == 0
 ```
 
