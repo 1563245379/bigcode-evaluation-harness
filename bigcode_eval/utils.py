@@ -922,7 +922,7 @@ def process_assertion_with_generation(
         assistant_idx = assertions.lower().find("assistant")
         assertions = assertions[assistant_idx + len("assistant"):].strip()
 
-    assertion_pattern = r'```\s*(.*?)\s*```'
+    assertion_pattern = r'```python\s*(.*?)\s*```'
     matches = re.findall(assertion_pattern, assertions, re.DOTALL)
     
     if matches:
