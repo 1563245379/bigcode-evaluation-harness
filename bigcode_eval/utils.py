@@ -762,7 +762,7 @@ def code_generation(
 # """
 
     user_prompt_assertion = """User's Prompt:
-    
+
 {user_prompt}
 
 Generated Python Code:
@@ -918,7 +918,11 @@ def process_assertion_with_generation(
         prompt=prompt
     )
     
-    assertion_pattern = r'```python\s*(.*?)\s*```'
+    if "assistant" in assertions.lower():
+        assistant_idx = assertions.lower().find("assistant")
+        assertions = assertions[assistant_idx + len("assistant"):].strip()
+
+    assertion_pattern = r'```\s*(.*?)\s*```'
     matches = re.findall(assertion_pattern, assertions, re.DOTALL)
     
     if matches:
