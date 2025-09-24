@@ -10,6 +10,7 @@ from typing import List, Optional
 import torch
 from torch.utils.data import IterableDataset
 from tqdm import tqdm
+import subprocess
 
 INFILL_MODE = False
 INSTRUCTION_MODE = False
@@ -706,12 +707,63 @@ def fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generat
 
     # Save generated C code to file
     if processed_result['c_code']:
-        c_filename = f"fm_checking_temp_file.c"
-        os.makedirs(os.path.dirname(c_filename), exist_ok=True)
+        c_filename = "fm_checking_temp_file.c"
         with open(c_filename, 'w') as c_file:
             c_file.write(processed_result['c_code'])
         print(f"C code saved to: {c_filename}")
+    
+    # # Run theta-cfa-cli on the generated C file
+    # if processed_result['c_code'] and os.path.exists(c_filename):
+    #     theta_result = run_theta_cfa_cli(c_filename)
+    #     if theta_result:
+    #         print(f"theta-cfa-cli analysis completed with return code: {theta_result['returncode']}")
 
+    
+def run_theta_cfa_cli(c_filename):
+    """Run theta-cfa-cli binary program on the generated C file.
+    Args:
+        c_filename: Path to the C file to be analyzed by theta-cfa-cli.
+    Returns:
+        The output of the theta-cfa-cli command.
+    """
+    
+    # Check if theta-cfa-cli exists
+    theta_cli_path = "./theta-cfa-cli"
+    if not os.path.exists(theta_cli_path):
+        warnings.warn(f"theta-cfa-cli not found at {theta_cli_path}")
+        return None
+    
+    try:
+        # Run theta-cfa-cli with the C file
+        result = subprocess.run(
+            [theta_cli_path, c_filename],
+            capture_output=True,
+            text=True,
+            timeout=30  # 30 second timeout
+        )
+        
+        print(f"theta-cfa-cli return code: {result.returncode}")
+        if result.stdout:
+            print(f"theta-cfa-cli stdout:\n{result.stdout}")
+        if result.stderr:
+            print(f"theta-cfa-cli stderr:\n{result.stderr}")
+            
+        return {
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr
+        }
+        
+    except subprocess.TimeoutExpired:
+        warnings.warn("theta-cfa-cli execution timed out")
+        return None
+    except subprocess.CalledProcessError as e:
+        warnings.warn(f"theta-cfa-cli execution failed: {e}")
+        return None
+    except Exception as e:
+        warnings.warn(f"Error running theta-cfa-cli: {e}")
+        return None
+        
 
 def decode_llm_output(prefix, task, tokenizer, generated_tokens, instruction_tokens):
     for s in generated_tokens:
