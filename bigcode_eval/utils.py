@@ -691,8 +691,8 @@ def fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generat
         for a in assertion:
             print(f"Assertion:\n{a}\n")
 
-    if assertion:
-        answer = answer + "\n\n" + "\n".join(assertion)
+    # if assertion:
+    #     answer = answer + "\n\n" + "\n".join(assertion)
 
     # Convert python code to C code
     processed_result = process_answer_with_conversion(
@@ -806,12 +806,13 @@ def code_generation(
         
     system_prompt_python_to_c = """You are an expert programmer with deep knowledge of both Python and C. Your task is to convert the following Python code into its equivalent C code.
 
+You are an expert programmer with deep knowledge of both Python and C. Your task is to convert the following Python code into its equivalent C code.
+
 **Instructions:**
 
 *   Translate the logic and functionality of the Python code as accurately as possible into C.
 *   The C code should be complete and able to be compiled and run.
-*   **Crucially, you must also translate the Python assertions in the original code into the form of C assertions.**
-*   **You must output only the C code and it must be enclosed in a C markdown block.** Do not include any explanations, comments, or any text other than the code itself.
+*   **Crucially, you must output only the C code and it must be enclosed in a C markdown block.** Do not include any explanations, comments, or any text other than the code itself.
 
 **Example:**
 
@@ -822,16 +823,12 @@ def sum_list(numbers):
     for number in numbers:
         total += number
     return total
-
-assert sum_list([1, 2, 3, 4, 5]) == 15
-assert sum_list([-1, 0, 1]) == 0
 ```
 
 **Your Expected Output:**
 
 ```c
 #include <stdio.h>
-#include <assert.h>
 
 int sum_list(int numbers[], int size) {
     int total = 0;
@@ -842,10 +839,9 @@ int sum_list(int numbers[], int size) {
 }
 
 int main() {
-    int arr1[] = {1, 2, 3, 4, 5};
-    int arr2[] = {-1, 0, 1};
-    assert(sum_list(arr1, 5) == 15);
-    assert(sum_list(arr2, 3) == 0);
+    int my_list[] = {1, 2, 3, 4, 5};
+    int size = sizeof(my_list) / sizeof(my_list[0]);
+    int result = sum_list(my_list, size);
     return 0;
 }
 ```
@@ -937,7 +933,7 @@ Generated Python Code:
             clean_up_tokenization_spaces=True
         )
 
-        print(f"Generated Text ({mode}):\n{generated_text}\n")
+        # print(f"Generated Text ({mode}):\n{generated_text}\n")
         
     return generated_text
 
