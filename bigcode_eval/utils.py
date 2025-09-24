@@ -679,17 +679,17 @@ def fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generat
     prompt = re.findall(pattern, processed_texts, flags=re.DOTALL)[0].strip()
     answer = re.sub(pattern, '', processed_texts, flags=re.DOTALL).strip()
 
-    assertion = process_assertion_with_generation(
-        prompt, 
-        answer, 
-        model, 
-        tokenizer, 
-        accelerator
-    )
+    # assertion = process_assertion_with_generation(
+    #     prompt, 
+    #     answer, 
+    #     model, 
+    #     tokenizer, 
+    #     accelerator
+    # )
 
-    if assertion:
-        for a in assertion:
-            print(f"Assertion:\n{a}\n")
+    # if assertion:
+    #     for a in assertion:
+    #         print(f"Assertion:\n{a}\n")
 
     # if assertion:
     #     answer = answer + "\n\n" + "\n".join(assertion)
@@ -701,6 +701,7 @@ def fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generat
         tokenizer, 
         accelerator
     )
+    print(f"Prompt:\n{prompt}\n")
     print(f"Python Code:\n{processed_result['python_code']}\n")
     if processed_result['c_code']:
         print(f"C Code:\n{processed_result['c_code']}\n")
