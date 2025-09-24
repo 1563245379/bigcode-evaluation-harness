@@ -155,6 +155,7 @@ def parallel_generations(
         intermediate_generations=intermediate_generations,
         intermediate_save_generations_path=intermediate_save_generations_path,
         generation_with_fm=args.generation_with_fm,
+        *args,
         **gen_kwargs,
     )
 

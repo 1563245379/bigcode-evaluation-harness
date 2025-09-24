@@ -478,6 +478,7 @@ def generate_code_with_fm(
     intermediate_generations: Optional[List[Optional[List[Optional[str]]]]] = None,
     intermediate_save_generations_path: Optional[str] = None,
     generation_with_fm= False,
+    *args,
     **gen_kwargs,
     ):
     if not generation_with_fm:
@@ -518,6 +519,7 @@ def generate_code_with_fm(
             save_every_k_tasks,
             intermediate_generations,
             intermediate_save_generations_path,
+            *args,
             **gen_kwargs,
         )
         return generations
@@ -539,6 +541,7 @@ def fm_completion(
     save_every_k_tasks: int = -1,
     intermediate_generations: Optional[List[Optional[List[Optional[str]]]]] = None,
     intermediate_save_generations_path: Optional[str] = None,
+    *args,
     **gen_kwargs,
 ):
     """Generate multiple codes for each task in the dataset using multiple GPUs with accelerate.
@@ -627,7 +630,7 @@ def fm_completion(
             generated_tokens = generated_tokens.cpu().numpy()
             generated_tasks = generated_tasks.cpu().numpy()
 
-            fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generated_tokens, generated_tasks, limit_start, instruction_tokens)
+            fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generated_tokens, generated_tasks, limit_start, instruction_tokens, *args)
 
             for sample, generated_tokens in zip(generated_tasks, generated_tokens):
                 gen_token_dict[sample].append(generated_tokens)
@@ -670,8 +673,20 @@ def fm_completion(
     generations.extend(code_gens)
     return generations
 
-def fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generated_tokens, generated_tasks, limit_start=0, instruction_tokens=None):
-    
+def fm_assistant_generation(
+        prefix, 
+        task, 
+        tokenizer, 
+        model, 
+        accelerator, 
+        generated_tokens, 
+        generated_tasks, 
+        limit_start=0, 
+        instruction_tokens=None, 
+        *args,
+        **kwargs
+):
+
     decode_text = decode_llm_output(prefix, task, tokenizer, generated_tokens, instruction_tokens)
     processed_texts = task.postprocess_generation(decode_text, int(generated_tasks) + limit_start)
 
@@ -710,33 +725,29 @@ def fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generat
         c_filename = "fm_checking_temp_file.c"
         with open(c_filename, 'w') as c_file:
             c_file.write(processed_result['c_code'])
-        print(f"C code saved to: {c_filename}")
-    
-    # # Run theta-cfa-cli on the generated C file
-    # if processed_result['c_code'] and os.path.exists(c_filename):
-    #     theta_result = run_theta_cfa_cli(c_filename)
-    #     if theta_result:
-    #         print(f"theta-cfa-cli analysis completed with return code: {theta_result['returncode']}")
 
-    
-def run_theta_cfa_cli(c_filename):
-    """Run theta-cfa-cli binary program on the generated C file.
+        theta_result = run_gazer_theta(c_filename, args.gazer_theta_path, args.running_command)
+        if theta_result:
+            print(f"gazer-theta analysis completed with return code: {theta_result['returncode']}")
+
+
+def run_gazer_theta(c_filename, gazer_theta_path="./gazer-theta", running_command=None):
+    """Run gazer-theta binary program on the generated C file.
     Args:
-        c_filename: Path to the C file to be analyzed by theta-cfa-cli.
+        c_filename: Path to the C file to be analyzed by gazer-theta.
     Returns:
-        The output of the theta-cfa-cli command.
+        The output of the gazer-theta command.
     """
-    
-    # Check if theta-cfa-cli exists
-    theta_cli_path = "./theta-cfa-cli"
-    if not os.path.exists(theta_cli_path):
-        warnings.warn(f"theta-cfa-cli not found at {theta_cli_path}")
+
+    # Check if gazer-theta exists
+    if not os.path.exists(gazer_theta_path):
+        warnings.warn(f"gazer-theta not found at {gazer_theta_path}")
         return None
     
     try:
-        # Run theta-cfa-cli with the C file
+        # Run gazer-theta with the C file
         result = subprocess.run(
-            [theta_cli_path, c_filename],
+            [gazer_theta_path, c_filename],
             capture_output=True,
             text=True,
             timeout=30  # 30 second timeout
@@ -755,13 +766,13 @@ def run_theta_cfa_cli(c_filename):
         }
         
     except subprocess.TimeoutExpired:
-        warnings.warn("theta-cfa-cli execution timed out")
+        print("theta-cfa-cli execution timed out")
         return None
     except subprocess.CalledProcessError as e:
-        warnings.warn(f"theta-cfa-cli execution failed: {e}")
+        print(f"Error running theta-cfa-cli: {e}")
         return None
     except Exception as e:
-        warnings.warn(f"Error running theta-cfa-cli: {e}")
+        print(f"Unexpected error: {e}")
         return None
         
 
@@ -950,7 +961,16 @@ def extract_c_code_block(text):
     c_code_pattern = r'```c\s*(.*?)\s*```'
     match = re.search(c_code_pattern, text, re.DOTALL)
     if match:
-        return match.group(1).strip()
+        # Remove free() statements from C code
+        c_code = match.group(1).strip()
+        c_code = re.sub(r'\s*free\s*\([^)]*\)\s*;?\s*', '\n', c_code, flags=re.MULTILINE)
+        
+        # Check if assert.h is included, if not add it at the beginning
+        if '#include <assert.h>' not in c_code and re.search(r'\bassert\s*\(', c_code):
+            c_code = '#include <assert.h>\n' + c_code
+        
+        return c_code
+    
     else:
         warnings.warn("No C code block found in the generated text. Returning empty string.")
         return None

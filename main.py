@@ -210,11 +210,16 @@ def parse_args():
         action="store_true",
         help="Don't run generation but benchmark groundtruth (useful for debugging)",
     )
-
     parser.add_argument(
         "--generation_with_fm",
         action="store_true",
         help="Whether to use formal methods for generation",
+    )
+    parser.add_argument(
+        "--gazer_theta_path",
+        type=str,
+        default="./gazer-theta",
+        help="Path to the Gazer-Theta directory",
     )
     return parser.parse_args()
 
