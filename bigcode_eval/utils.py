@@ -1,3 +1,5 @@
+import os
+
 import json
 import math
 import re
@@ -624,38 +626,7 @@ def fm_completion(
             generated_tokens = generated_tokens.cpu().numpy()
             generated_tasks = generated_tasks.cpu().numpy()
 
-            decode_text = decode_llm_output(prefix, task, tokenizer, generated_tokens, instruction_tokens)
-            processed_texts = task.postprocess_generation(decode_text, int(generated_tasks) + limit_start)
-
-            pattern = r'"""\n(.*?)\n"""\n'
-            prompt = re.findall(pattern, processed_texts, flags=re.DOTALL)[0].strip()
-            answer = re.sub(pattern, '', processed_texts, flags=re.DOTALL).strip()
-
-            assertion = process_assertion_with_generation(
-                prompt, 
-                answer, 
-                model, 
-                tokenizer, 
-                accelerator
-            )
-
-            if assertion:
-                for a in assertion:
-                    print(f"Assertion:\n{a}\n")
-
-            if assertion:
-                answer = answer + "\n\n" + "\n".join(assertion)
-
-            # Convert python code to C code
-            processed_result = process_answer_with_conversion(
-                answer, 
-                model, 
-                tokenizer, 
-                accelerator
-            )
-            print(f"Python Code:\n{processed_result['python_code']}\n")
-            if processed_result['c_code']:
-                print(f"C Code:\n{processed_result['c_code']}\n")
+            fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generated_tokens, generated_tasks, limit_start, instruction_tokens)
 
             for sample, generated_tokens in zip(generated_tasks, generated_tokens):
                 gen_token_dict[sample].append(generated_tokens)
@@ -697,6 +668,49 @@ def fm_completion(
 
     generations.extend(code_gens)
     return generations
+
+def fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generated_tokens, generated_tasks, limit_start=0, instruction_tokens=None):
+    
+    decode_text = decode_llm_output(prefix, task, tokenizer, generated_tokens, instruction_tokens)
+    processed_texts = task.postprocess_generation(decode_text, int(generated_tasks) + limit_start)
+
+    pattern = r'"""\n(.*?)\n"""\n'
+    prompt = re.findall(pattern, processed_texts, flags=re.DOTALL)[0].strip()
+    answer = re.sub(pattern, '', processed_texts, flags=re.DOTALL).strip()
+
+    assertion = process_assertion_with_generation(
+        prompt, 
+        answer, 
+        model, 
+        tokenizer, 
+        accelerator
+    )
+
+    if assertion:
+        for a in assertion:
+            print(f"Assertion:\n{a}\n")
+
+    if assertion:
+        answer = answer + "\n\n" + "\n".join(assertion)
+
+    # Convert python code to C code
+    processed_result = process_answer_with_conversion(
+        answer, 
+        model, 
+        tokenizer, 
+        accelerator
+    )
+    print(f"Python Code:\n{processed_result['python_code']}\n")
+    if processed_result['c_code']:
+        print(f"C Code:\n{processed_result['c_code']}\n")
+
+    # Save generated C code to file
+    if processed_result['c_code']:
+        c_filename = f"fm_checking_temp_file.c"
+        os.makedirs(os.path.dirname(c_filename), exist_ok=True)
+        with open(c_filename, 'w') as c_file:
+            c_file.write(processed_result['c_code'])
+        print(f"C code saved to: {c_filename}")
 
 
 def decode_llm_output(prefix, task, tokenizer, generated_tokens, instruction_tokens):
@@ -744,11 +758,48 @@ def code_generation(
 
 *   Translate the logic and functionality of the Python code as accurately as possible into C.
 *   The C code should be complete and able to be compiled and run.
-*   **Crucially, you must output only the C code and it must be enclosed in a C markdown block.** Do not include any explanations, comments, or any text other than the code itself.
+*   **Crucially, you must also translate the Python assertions in the original code into the form of C assertions.**
+*   **You must output only the C code and it must be enclosed in a C markdown block.** Do not include any explanations, comments, or any text other than the code itself.
+
+**Example:**
+
+Python Code to Convert:
+```python
+def sum_list(numbers):
+    total = 0
+    for number in numbers:
+        total += number
+    return total
+
+assert sum_list([1, 2, 3, 4, 5]) == 15
+assert sum_list([-1, 0, 1]) == 0
+```
+
+**Your Expected Output:**
+
+```c
+#include <stdio.h>
+#include <assert.h>
+
+int sum_list(int numbers[], int size) {
+    int total = 0;
+    for (int i = 0; i < size; i++) {
+        total += numbers[i];
+    }
+    return total;
+}
+
+int main() {
+    int arr1[] = {1, 2, 3, 4, 5};
+    int arr2[] = {-1, 0, 1};
+    assert(sum_list(arr1, 5) == 15);
+    assert(sum_list(arr2, 3) == 0);
+    return 0;
+}
+```
 """
     
     user_prompt_python_to_c = """Python Code to Convert:
-
 ```python
 {python_code}
 ```
@@ -781,7 +832,7 @@ def sum_list(numbers):
 **Your Expected Output:**
 
 ```python
-assert sum_list() == 15
+assert sum_list([1, 2, 3, 4, 5]) == 15
 assert sum_list([-1, 0, 1]) == 0
 ```
 """
