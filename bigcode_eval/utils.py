@@ -726,12 +726,12 @@ def fm_assistant_generation(
         with open(c_filename, 'w') as c_file:
             c_file.write(processed_result['c_code'])
 
-        theta_result = run_gazer_theta(c_filename, args.gazer_theta_path, args.running_command)
+        theta_result = run_gazer_theta(c_filename, args.gazer_theta_path, args.running_command, args.llvm_path)
         if theta_result:
             print(f"gazer-theta analysis completed with return code: {theta_result['returncode']}")
 
 
-def run_gazer_theta(c_filename, gazer_theta_path="./gazer-theta", running_command=None):
+def run_gazer_theta(c_filename, gazer_theta_path="./gazer-theta", running_command=None, llvm_path='/workspace/llvm/clang+llvm-9.0.1-x86_64-linux-gnu-ubuntu-16.04/bin'):
     """Run gazer-theta binary program on the generated C file.
     Args:
         c_filename: Path to the C file to be analyzed by gazer-theta.
@@ -745,7 +745,10 @@ def run_gazer_theta(c_filename, gazer_theta_path="./gazer-theta", running_comman
         return None
     
     try:
-        # Run gazer-theta with the C file
+        env = os.environ.copy()
+        env['LLVM_HOME'] = llvm_path
+        env['PATH'] = env['LLVM_HOME'] + ':' + env.get('PATH', '')
+        
         result = subprocess.run(
             [gazer_theta_path, c_filename],
             capture_output=True,
