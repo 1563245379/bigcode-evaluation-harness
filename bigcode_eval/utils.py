@@ -728,7 +728,7 @@ def fm_assistant_generation(
 
         theta_result = run_gazer_theta(c_filename, kwargs['gazer_theta_path'], kwargs['running_command'], kwargs['llvm_path'])
         if theta_result:
-            print(f"gazer-theta analysis completed with return code: {theta_result['returncode']}")
+            print(f"theta-cfa-cli stdout:\n{theta_result}")
 
 
 def run_gazer_theta(c_filename, gazer_theta_path="./gazer-theta", running_command=None, llvm_path='/workspace/llvm/clang+llvm-9.0.1-x86_64-linux-gnu-ubuntu-16.04/bin'):
@@ -745,28 +745,14 @@ def run_gazer_theta(c_filename, gazer_theta_path="./gazer-theta", running_comman
         return None
     
     try:
-        env = os.environ.copy()
-        env['LLVM_HOME'] = llvm_path
-        env['PATH'] = env['LLVM_HOME'] + ':' + env.get('PATH', '')
-        
         result = subprocess.run(
-            [gazer_theta_path, c_filename],
+            [gazer_theta_path, c_filename, running_command],
             capture_output=True,
             text=True,
-            timeout=30  # 30 second timeout
+            timeout=30
         )
-        
-        print(f"theta-cfa-cli return code: {result.returncode}")
-        if result.stdout:
-            print(f"theta-cfa-cli stdout:\n{result.stdout}")
-        if result.stderr:
-            print(f"theta-cfa-cli stderr:\n{result.stderr}")
             
-        return {
-            "returncode": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr
-        }
+        return result.stdout
         
     except subprocess.TimeoutExpired:
         print("theta-cfa-cli execution timed out")
@@ -951,7 +937,7 @@ Generated Python Code:
             clean_up_tokenization_spaces=True
         )
 
-        print(f"Generated Text ({mode}):\n{generated_text}\n")
+        # print(f"Generated Text ({mode}):\n{generated_text}\n")
         
     return generated_text
 
