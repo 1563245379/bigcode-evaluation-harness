@@ -218,7 +218,7 @@ def parse_args():
     parser.add_argument(
         "--gazer_theta_path",
         type=str,
-        default="./gazer-theta",
+        default="./gazer-theta/gazer-theta",
         help="Path to the Gazer-Theta directory",
     )
     parser.add_argument(
@@ -228,7 +228,7 @@ def parse_args():
         help="Custom command to run gazer-theta, e.g., with docker or singularity",
     )
     parser.add_argument(
-        "llvm_path",
+        "--llvm_path",
         type=str,
         default='/workspace/llvm/clang+llvm-9.0.1-x86_64-linux-gnu-ubuntu-16.04/bin',
         help="Path to the LLVM bin directory containing clang and clang++ binaries",
