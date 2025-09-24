@@ -155,7 +155,9 @@ def parallel_generations(
         intermediate_generations=intermediate_generations,
         intermediate_save_generations_path=intermediate_save_generations_path,
         generation_with_fm=args.generation_with_fm,
-        *args,
+        gazer_theta_path=args.gazer_theta_path,
+        running_command=args.running_command,
+        llvm_path=args.llvm_path,
         **gen_kwargs,
     )
 

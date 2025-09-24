@@ -478,7 +478,6 @@ def generate_code_with_fm(
     intermediate_generations: Optional[List[Optional[List[Optional[str]]]]] = None,
     intermediate_save_generations_path: Optional[str] = None,
     generation_with_fm= False,
-    *args,
     **gen_kwargs,
     ):
     if not generation_with_fm:
@@ -519,7 +518,6 @@ def generate_code_with_fm(
             save_every_k_tasks,
             intermediate_generations,
             intermediate_save_generations_path,
-            *args,
             **gen_kwargs,
         )
         return generations
@@ -541,7 +539,6 @@ def fm_completion(
     save_every_k_tasks: int = -1,
     intermediate_generations: Optional[List[Optional[List[Optional[str]]]]] = None,
     intermediate_save_generations_path: Optional[str] = None,
-    *args,
     **gen_kwargs,
 ):
     """Generate multiple codes for each task in the dataset using multiple GPUs with accelerate.
@@ -630,7 +627,7 @@ def fm_completion(
             generated_tokens = generated_tokens.cpu().numpy()
             generated_tasks = generated_tasks.cpu().numpy()
 
-            fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generated_tokens, generated_tasks, limit_start, instruction_tokens, *args)
+            fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generated_tokens, generated_tasks, limit_start, instruction_tokens, **gen_kwargs)
 
             for sample, generated_tokens in zip(generated_tasks, generated_tokens):
                 gen_token_dict[sample].append(generated_tokens)
@@ -683,7 +680,6 @@ def fm_assistant_generation(
         generated_tasks, 
         limit_start=0, 
         instruction_tokens=None, 
-        *args,
         **kwargs
 ):
 
@@ -726,7 +722,7 @@ def fm_assistant_generation(
         with open(c_filename, 'w') as c_file:
             c_file.write(processed_result['c_code'])
 
-        theta_result = run_gazer_theta(c_filename, args.gazer_theta_path, args.running_command, args.llvm_path)
+        theta_result = run_gazer_theta(c_filename, kwargs['gazer_theta_path'], kwargs['running_command'], kwargs['llvm_path'])
         if theta_result:
             print(f"gazer-theta analysis completed with return code: {theta_result['returncode']}")
 
