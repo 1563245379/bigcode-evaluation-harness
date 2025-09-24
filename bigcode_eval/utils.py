@@ -745,8 +745,9 @@ def run_gazer_theta(c_filename, gazer_theta_path="./gazer-theta", running_comman
         return None
     
     try:
+        command = running_command + " " + c_filename if running_command else c_filename
         result = subprocess.run(
-            [gazer_theta_path, c_filename, running_command],
+            [gazer_theta_path, command],
             capture_output=True,
             text=True,
             timeout=30
