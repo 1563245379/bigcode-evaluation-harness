@@ -551,6 +551,10 @@ def fm_completion(
     code_gens: List[List[Optional[str]]] = [[] for _ in range(n_tasks)]
     generations = [] if not intermediate_generations else intermediate_generations
     gen_token_dict = defaultdict(list)  # dict of list of generated tokens
+    gazer_theta_path = gen_kwargs.pop("gazer_theta_path", None)
+    llvm_path = gen_kwargs.pop("llvm_path", None)
+    running_command = gen_kwargs.pop("running_command", None)
+
     for step, batch in tqdm(
         enumerate(dataloader),
         total=math.ceil(
@@ -627,7 +631,7 @@ def fm_completion(
             generated_tokens = generated_tokens.cpu().numpy()
             generated_tasks = generated_tasks.cpu().numpy()
 
-            fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generated_tokens, generated_tasks, limit_start, instruction_tokens, **gen_kwargs)
+            fm_assistant_generation(prefix, task, tokenizer, model, accelerator, generated_tokens, generated_tasks, limit_start, instruction_tokens, gazer_theta_path=gazer_theta_path, llvm_path=llvm_path, running_command=running_command)
 
             for sample, generated_tokens in zip(generated_tasks, generated_tokens):
                 gen_token_dict[sample].append(generated_tokens)
